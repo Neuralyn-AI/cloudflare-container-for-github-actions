@@ -1,0 +1,14 @@
+{
+  "action": "queued",
+  "workflow_job": {
+    "id": 123456789,
+    "name": "checks",
+    "labels": ["self-hosted", "cf-container"],
+    "status": "queued"
+  },
+  "repository": {
+    "name": "neuralyn-customer-dashboard",
+    "owner": { "login": "Neuralyn-AI" }
+  },
+  "installation": { "id": 42 }
+}
