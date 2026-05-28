@@ -1,0 +1,75 @@
+# Example: PR check that invokes Claude Code to auto-fix on failure.
+#
+# What it does:
+#   - Runs tests (same as pr-check-node).
+#   - If tests fail, dispatches the Claude Code action with a structured
+#     prompt instructing Claude to read the failure logs and push a fix
+#     commit to the PR branch.
+#
+# Prerequisites:
+#   - CLAUDE_CODE_OAUTH_TOKEN secret (from Anthropic Console).
+#   - Repo opted into anthropics/claude-code-action.
+#   - Permissions: contents: write (to push fix commit), pull-requests: write,
+#     issues: write, id-token: write, actions: read.
+
+name: PR Check (Claude auto-fix)
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: [self-hosted, cf-container]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  fix-with-claude:
+    name: Ask Claude to fix
+    needs: test
+    if: always() && needs.test.result == 'failure'
+    runs-on: [self-hosted, cf-container]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Build fix prompt
+        id: prompt
+        env:
+          RUN_URL:    ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PR_NUMBER:  ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo "prompt<<EOF"
+            echo "PR #${PR_NUMBER} failed in CI. Run logs: ${RUN_URL}"
+            echo ""
+            echo "Please:"
+            echo "1. Use \`gh run view --log-failed\` to read the actual failure."
+            echo "2. Identify the root cause."
+            echo "3. Make the smallest possible fix and commit + push to this branch."
+            echo "4. Do NOT add unrelated changes."
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: ${{ steps.prompt.outputs.prompt }}
+          additional_permissions: |
+            actions: read

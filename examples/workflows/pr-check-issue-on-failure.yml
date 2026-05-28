@@ -1,0 +1,63 @@
+# Example: PR check that creates a GitHub issue when checks fail.
+#
+# What it does:
+#   - Runs tests (same as pr-check-node).
+#   - If tests fail, creates or comments on a GitHub issue labeled
+#     "ci-failure" with the PR link and run URL.
+#
+# Prerequisites:
+#   - Repo has a label called "ci-failure" (created automatically on first
+#     `gh issue create` if missing).
+#   - `gh` CLI is available in the runner image (default Dockerfile has it).
+#   - Token: GITHUB_TOKEN scope `issues: write` (via permissions block below).
+
+name: PR Check (with issue on failure)
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: [self-hosted, cf-container]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  report-failure:
+    name: Report failure as issue
+    needs: test
+    if: always() && needs.test.result == 'failure'
+    runs-on: [self-hosted, cf-container]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Open / comment on tracking issue
+        env:
+          GH_TOKEN:    ${{ secrets.GITHUB_TOKEN }}
+          PR_URL:      ${{ github.event.pull_request.html_url }}
+          PR_NUMBER:   ${{ github.event.pull_request.number }}
+          RUN_URL:     ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          body="🔴 CI failure on PR #${PR_NUMBER}
+          - PR: ${PR_URL}
+          - Run: ${RUN_URL}"
+          existing=$(gh issue list --label ci-failure --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+            echo "Appended to issue #$existing"
+          else
+            gh issue create \
+              --title "🔴 CI failure on PR #${PR_NUMBER}" \
+              --label ci-failure \
+              --body "$body"
+          fi

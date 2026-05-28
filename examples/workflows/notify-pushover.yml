@@ -1,0 +1,52 @@
+# Example: Notify via Pushover on deploy failure.
+#
+# What it does:
+#   - Runs a deploy (replace with your real deploy logic).
+#   - On failure only, sends a Pushover push notification.
+#
+# Prerequisites:
+#   - PUSHOVER_USER_KEY secret: your Pushover user key.
+#   - PUSHOVER_APP_TOKEN secret: your Pushover application token.
+
+name: Deploy + Pushover notify
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: [self-hosted, cf-container]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Deploy
+        run: |
+          # Replace with your real deploy command.
+          echo "Pretend deploy"
+
+  notify-failure:
+    name: Pushover on failure
+    needs: deploy
+    if: always() && needs.deploy.result == 'failure'
+    runs-on: [self-hosted, cf-container]
+    steps:
+      - name: Send Pushover
+        env:
+          PUSHOVER_USER_KEY:  ${{ secrets.PUSHOVER_USER_KEY }}
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+          REPO:               ${{ github.repository }}
+          SHA:                ${{ github.sha }}
+          RUN_URL:            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -X POST https://api.pushover.net/1/messages.json \
+            --form-string "token=$PUSHOVER_APP_TOKEN" \
+            --form-string "user=$PUSHOVER_USER_KEY" \
+            --form-string "title=🔴 Deploy failed: $REPO" \
+            --form-string "message=Commit ${SHA:0:7} failed to deploy. Run: $RUN_URL" \
+            --form-string "url=$RUN_URL" \
+            --form-string "priority=1"

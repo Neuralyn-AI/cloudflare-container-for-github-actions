@@ -1,0 +1,69 @@
+# Example: Notify an HTTP webhook on success/failure of a deploy.
+#
+# What it does:
+#   - Runs a deploy (replace with your real deploy logic).
+#   - On success or failure, POSTs an HMAC-signed JSON payload to
+#     NOTIFY_WEBHOOK_URL.
+#
+# Prerequisites:
+#   - NOTIFY_WEBHOOK_URL secret: the destination endpoint.
+#   - NOTIFY_WEBHOOK_SECRET secret: HMAC-SHA256 key the receiver uses to
+#     verify the X-Signature header.
+
+name: Deploy + webhook notify
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: [self-hosted, cf-container]
+    outputs:
+      result: ${{ steps.set-result.outputs.result }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Deploy
+        id: do-deploy
+        run: |
+          # Replace this with your actual deploy command.
+          echo "Pretend deploy succeeds"
+      - name: Set result
+        id: set-result
+        if: always()
+        run: echo "result=${{ steps.do-deploy.outcome }}" >> "$GITHUB_OUTPUT"
+
+  notify:
+    name: Notify webhook
+    needs: deploy
+    if: always()
+    runs-on: [self-hosted, cf-container]
+    steps:
+      - name: POST signed payload
+        env:
+          NOTIFY_WEBHOOK_URL:    ${{ secrets.NOTIFY_WEBHOOK_URL }}
+          NOTIFY_WEBHOOK_SECRET: ${{ secrets.NOTIFY_WEBHOOK_SECRET }}
+          RESULT:                ${{ needs.deploy.outputs.result }}
+          REPO:                  ${{ github.repository }}
+          SHA:                   ${{ github.sha }}
+          RUN_URL:               ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          payload=$(jq -nc \
+            --arg repo "$REPO" \
+            --arg sha  "$SHA" \
+            --arg url  "$RUN_URL" \
+            --arg res  "$RESULT" \
+            '{repo:$repo, sha:$sha, run_url:$url, result:$res, timestamp: now|todate}')
+          sig=$(printf '%s' "$payload" \
+            | openssl dgst -sha256 -hmac "$NOTIFY_WEBHOOK_SECRET" -binary \
+            | xxd -p -c 256)
+          curl -fsSL -X POST "$NOTIFY_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -H "X-Signature: sha256=$sig" \
+            --data "$payload"
+          echo "Notified $NOTIFY_WEBHOOK_URL (result=$RESULT)"
