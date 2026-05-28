@@ -20,3 +20,7 @@ dist/
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# Internal process docs (not shipped with the OSS repo)
+CLAUDE.md
+docs/superpowers/plans/
