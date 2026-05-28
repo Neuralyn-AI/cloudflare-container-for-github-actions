@@ -1,0 +1,93 @@
+# Example: PR check for a Laravel (PHP + Postgres) project.
+#
+# What it does:
+#   - Starts Postgres in-container (Cloudflare Containers has no Docker
+#     socket so `services: postgres:` would fail with "docker not found").
+#   - Runs Pint (style), PHPStan (static analysis), migrations, and PHPUnit.
+#
+# Prerequisites:
+#   - Runner image has PHP + Postgres pre-installed.
+#     Use examples/dockerfiles/php-postgresql.dockerfile.
+#   - Repo has composer.json + vendor/bin/pint + vendor/bin/phpstan installed
+#     via composer install.
+#   - Repo has .env.example pre-configured for testing DB.
+#
+# Secrets required: none.
+
+name: PR Check (Laravel)
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  laravel:
+    name: Pint + PHPStan + Migrations + PHPUnit
+    runs-on: [self-hosted, cf-container]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify PHP
+        run: php --version
+
+      - name: Start Postgres
+        # Cloudflare Containers doesn't run systemd/dbus, so the usual
+        # `service postgresql start` / `pg_ctlcluster` paths don't work.
+        # Use pg_ctl directly. /var/run/postgresql is tmpfs and may need
+        # re-creation on each boot.
+        run: |
+          PG_VERSION=16
+          PG_HOME=/var/lib/postgresql/${PG_VERSION}/main
+          PG_BIN=/usr/lib/postgresql/${PG_VERSION}/bin
+          PG_CONF=/etc/postgresql/${PG_VERSION}/main/postgresql.conf
+          sudo mkdir -p /var/run/postgresql
+          sudo chown postgres:postgres /var/run/postgresql
+          sudo -u postgres "$PG_BIN/pg_ctl" start \
+              -D "$PG_HOME" -l /tmp/postgres-start.log \
+              -o "-c config_file=$PG_CONF" -w -t 30
+          sudo -u postgres psql -c "CREATE USER laravel WITH PASSWORD 'secret' SUPERUSER;"
+          sudo -u postgres psql -c "CREATE DATABASE testing OWNER laravel;"
+          pg_isready -h localhost -p 5432
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v5
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+
+      - name: Install Composer dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Run Pint
+        run: ./vendor/bin/pint --test
+
+      - name: Run PHPStan
+        run: ./vendor/bin/phpstan analyse --memory-limit=512M
+
+      - name: Copy .env + generate key
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Run migrations
+        run: php artisan migrate --force
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_DATABASE: testing
+          DB_USERNAME: laravel
+          DB_PASSWORD: secret
+
+      - name: Run PHPUnit
+        run: php artisan test
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_DATABASE: testing
+          DB_USERNAME: laravel
+          DB_PASSWORD: secret

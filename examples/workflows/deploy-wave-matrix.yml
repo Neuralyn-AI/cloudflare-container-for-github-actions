@@ -1,0 +1,88 @@
+# Example: Deploy multiple Workers in waves (monorepo pattern).
+#
+# What it does:
+#   - Splits affected workers into 3 sequential waves.
+#   - Each wave runs a parallel matrix of `wrangler deploy` calls.
+#   - Waves run serially: wave-2 waits for wave-1, wave-3 waits for wave-2.
+#   - Caps simultaneous deploys to avoid hitting CF Container max_instances.
+#
+# Prerequisites:
+#   - Monorepo with workers under packages/*/wrangler.jsonc.
+#   - CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID secrets.
+#   - The job that computes "affected" workers is left as an exercise (see
+#     docs/architecture.md for the full pattern with turbo or custom resolver).
+#     For simplicity, this example hardcodes the worker list per wave.
+
+name: Deploy (waves)
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  wave-1:
+    name: Deploy wave 1
+    runs-on: [self-hosted, cf-container]
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [worker-a, worker-b, worker-c]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - name: Deploy ${{ matrix.worker }}
+        run: pnpm --filter "./packages/${{ matrix.worker }}" exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  wave-2:
+    name: Deploy wave 2
+    needs: wave-1
+    if: needs.wave-1.result == 'success' || needs.wave-1.result == 'skipped'
+    runs-on: [self-hosted, cf-container]
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [worker-d, worker-e]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - name: Deploy ${{ matrix.worker }}
+        run: pnpm --filter "./packages/${{ matrix.worker }}" exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  wave-3:
+    name: Deploy wave 3
+    needs: [wave-1, wave-2]
+    if: |
+      always() &&
+      (needs.wave-1.result == 'success' || needs.wave-1.result == 'skipped') &&
+      (needs.wave-2.result == 'success' || needs.wave-2.result == 'skipped')
+    runs-on: [self-hosted, cf-container]
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [worker-f]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - name: Deploy ${{ matrix.worker }}
+        run: pnpm --filter "./packages/${{ matrix.worker }}" exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

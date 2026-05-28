@@ -1,0 +1,37 @@
+# Example: PR check for a Node project.
+#
+# What it does:
+#   - Runs typecheck + tests + lint on every PR to main.
+#   - Uses pnpm (swap for npm/yarn by editing the install + script names).
+#
+# Prerequisites:
+#   - Worker deployed and labeling its runners with `cf-container`
+#     (default — see runner/wrangler.jsonc).
+#   - Repo has package.json scripts: `typecheck`, `test`, `lint`.
+#
+# Secrets required: none.
+
+name: PR Check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck + Tests + Lint
+    runs-on: [self-hosted, cf-container]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm lint

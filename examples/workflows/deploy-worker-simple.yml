@@ -1,0 +1,36 @@
+# Example: Deploy a single Cloudflare Worker on push to main.
+#
+# What it does:
+#   - Runs `wrangler deploy` from the repo root on every push to main.
+#
+# Prerequisites:
+#   - Repo has wrangler.jsonc at root.
+#   - CLOUDFLARE_API_TOKEN secret with Workers Scripts: Edit permission.
+#   - CLOUDFLARE_ACCOUNT_ID variable or secret.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy Worker
+    runs-on: [self-hosted, cf-container]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Deploy
+        run: pnpm exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
