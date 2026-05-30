@@ -1,6 +1,8 @@
 # Cloudflare container for Github Actions
 
-A self-hosted GitHub Actions runner that runs on **Cloudflare
+Save up to 98% on Github Actions using your own container on Cloudflare!
+
+This project is a self-hosted GitHub Actions runner that runs on **Cloudflare
 Containers**, so your CI/CD compute bill stops growing with your team.
 The runner stays inside the GitHub Actions ecosystem (workflows,
 matrices, secrets, reusable workflows — all unchanged) but the actual
