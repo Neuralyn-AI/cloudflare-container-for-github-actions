@@ -1,4 +1,4 @@
-# cloudflare-container-for-github-actions
+# Cloudflare container for Github Actions
 
 A self-hosted GitHub Actions runner that runs on **Cloudflare
 Containers**, so your CI/CD compute bill stops growing with your team.
